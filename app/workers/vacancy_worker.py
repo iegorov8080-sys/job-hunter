@@ -19,13 +19,15 @@ from app.utils.anti_detect import random_delay
 log = structlog.get_logger()
 
 SEARCH_QUERIES = [
-    "Python backend",
-    "Python developer",
-    "Backend developer",
-    "AI developer",
-    "Telegram bot",
-    "Python автоматизация",
-    "FastAPI",
+    "бизнес аналитик",
+    "системный аналитик",
+    "бизнес-аналитик",
+    "системный аналитик middle",
+    "аналитик",
+    "фулстек аналитик",
+    "product analyst",
+    "аналитик REST API",
+    "аналитик BPMN",
 ]
 
 PARSERS = {

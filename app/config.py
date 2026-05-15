@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Resume
     resume_text_path: str = "configs/resume.txt"
-    desired_position: str = "Python Backend Developer"
+    desired_position: str = "Бизнес/Системный аналитик (Middle)"
     desired_salary_min: int = 200000
     desired_salary_max: int = 400000
 
