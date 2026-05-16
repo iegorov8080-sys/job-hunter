@@ -64,27 +64,34 @@ async def run_auto_apply(auto_mode: bool = False, min_score: float = 70):
                 await session.commit()
 
             # Отправляем отклик
-            success = False
+            result = False
             if vacancy.platform == "hh":
                 parser = HHParser()
                 await parser.login()
-                success = await parser.apply_to_vacancy(vacancy.url, letter)
+                result = await parser.apply_to_vacancy(vacancy.url, letter)
+
+            success = result is True  # True != "already"
+            already = result == "already"
 
             # Записываем результат
             async with async_session() as session:
-                app = Application(
-                    vacancy_id=vacancy.id,
-                    platform=vacancy.platform,
-                    cover_letter=letter,
-                    status=ApplicationStatus.SENT if success else ApplicationStatus.FAILED,
-                    attempt_count=1,
-                )
-                session.add(app)
+                if not already:
+                    # Don't log application if already applied
+                    app = Application(
+                        vacancy_id=vacancy.id,
+                        platform=vacancy.platform,
+                        cover_letter=letter,
+                        status=ApplicationStatus.SENT if success else ApplicationStatus.FAILED,
+                        attempt_count=1,
+                    )
+                    session.add(app)
 
                 v = await session.get(Vacancy, vacancy.id)
                 if success:
                     v.status = VacancyStatus.APPLIED
                     applied += 1
+                elif already:
+                    v.status = VacancyStatus.APPLIED
                 await session.commit()
 
             log.info(

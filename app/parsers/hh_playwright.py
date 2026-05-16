@@ -167,8 +167,9 @@ class HHPlaywright:
             if not apply_btn:
                 applied_el = await page.query_selector('[data-qa="vacancy-response-link-view-topic"]')
                 if applied_el:
+                    await self._save_debug_screenshot(page, "already_applied")
                     log.info("hh_already_applied", url=vacancy_url)
-                    return True
+                    return "already"
                 await self._save_debug_screenshot(page, "apply_no_btn")
                 log.warning("hh_apply_btn_not_found", url=vacancy_url, page_url=page.url)
                 return False

@@ -452,9 +452,29 @@ async def cb_confirm_apply(callback: CallbackQuery, **kw):
             if len(parts) > 1:
                 cover_letter = parts[-1]
 
-    success = await parser.apply_to_vacancy(vacancy.url, cover_letter)
+    result = await parser.apply_to_vacancy(vacancy.url, cover_letter)
 
-    if success:
+    from pathlib import Path
+    from aiogram.types import FSInputFile
+
+    if result == "already":
+        # Vacancy already had a response (from before or some other source)
+        async with async_session() as session:
+            v = await session.get(Vacancy, vacancy_id)
+            if v:
+                v.status = VacancyStatus.APPLIED
+                await session.commit()
+        await callback.message.answer(
+            "ℹ️ На эту вакансию уже есть отклик (новый не отправлен).\n"
+            "Возможно, ты откликался раньше с этого аккаунта."
+        )
+        p = Path("data/debug_already_applied.png")
+        if p.exists():
+            try:
+                await callback.message.answer_photo(FSInputFile(p), caption="🖼 Что видит бот")
+            except Exception:
+                pass
+    elif result:
         async with async_session() as session:
             v = await session.get(Vacancy, vacancy_id)
             if v:
@@ -471,9 +491,6 @@ async def cb_confirm_apply(callback: CallbackQuery, **kw):
         await callback.message.answer("✅ Отклик отправлен!")
     else:
         await callback.message.answer("❌ Не удалось отправить отклик")
-        # Send debug screenshot if available
-        from pathlib import Path
-        from aiogram.types import FSInputFile
         for name in ("debug_apply_fail.png", "debug_apply_timeout.png", "debug_apply_no_btn.png"):
             p = Path(f"data/{name}")
             if p.exists():
