@@ -91,10 +91,18 @@ async def main():
         f"Режим: {'Playwright' if playwright_ok else 'API-only'}",
     )
 
-    # Wait for proxy to stabilize after boot
+    # Wait for proxy connectivity before starting polling
     if settings.tg_proxy:
-        log.info("waiting_for_proxy", seconds=15)
-        await asyncio.sleep(15)
+        for attempt in range(20):  # up to ~3 min
+            try:
+                await bot.get_me()
+                log.info("proxy_ready", attempt=attempt + 1)
+                break
+            except Exception as e:
+                log.info("waiting_for_proxy", attempt=attempt + 1, err=str(e)[:80])
+                await asyncio.sleep(10)
+        else:
+            log.error("proxy_unreachable_after_retries")
 
     try:
         await dp.start_polling(bot)
