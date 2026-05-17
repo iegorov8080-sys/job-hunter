@@ -1,5 +1,7 @@
 import asyncio
+import json
 from datetime import datetime
+from pathlib import Path
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -13,15 +15,36 @@ from app.workers.message_worker import check_all_messages
 log = structlog.get_logger()
 
 MSK = ZoneInfo("Europe/Moscow")
+STATE_FILE = Path("data/scheduler_state.json")
 
 
 class WorkerScheduler:
     def __init__(self, notify_callback=None):
         self.scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-        self.is_paused = False
-        self.auto_apply = False
+        # Load persisted state
+        state = self._load_state()
+        self.is_paused = state.get("is_paused", False)
+        self.auto_apply = state.get("auto_apply", False)
         self.min_ai_score = 70
         self.notify = notify_callback  # async fn(text) -> sends to TG
+
+    def _load_state(self) -> dict:
+        try:
+            if STATE_FILE.exists():
+                return json.loads(STATE_FILE.read_text())
+        except Exception as e:
+            log.warning("scheduler_state_load_error", error=str(e))
+        return {}
+
+    def _save_state(self):
+        try:
+            STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            STATE_FILE.write_text(json.dumps({
+                "is_paused": self.is_paused,
+                "auto_apply": self.auto_apply,
+            }))
+        except Exception as e:
+            log.warning("scheduler_state_save_error", error=str(e))
 
     def _is_quiet_hours(self) -> bool:
         """True если сейчас тихие часы (не отправляем уведомления)."""
@@ -63,6 +86,9 @@ class WorkerScheduler:
             seconds=interval * 2,
             id="auto_apply",
             name="Авто-отклики",
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=60,
         )
         self.scheduler.add_job(
             self._job_bump_resume,
@@ -161,11 +187,18 @@ class WorkerScheduler:
 
     def pause(self):
         self.is_paused = True
+        self._save_state()
         log.info("scheduler_paused")
 
     def resume(self):
         self.is_paused = False
+        self._save_state()
         log.info("scheduler_resumed")
+
+    def set_auto_apply(self, enabled: bool):
+        self.auto_apply = enabled
+        self._save_state()
+        log.info("auto_apply_set", enabled=enabled)
 
     def stop(self):
         self.scheduler.shutdown()

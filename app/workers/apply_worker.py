@@ -1,3 +1,4 @@
+import asyncio
 import structlog
 from sqlalchemy import select, func
 
@@ -63,12 +64,19 @@ async def run_auto_apply(auto_mode: bool = False, min_score: float = 70):
                 ))
                 await session.commit()
 
-            # Отправляем отклик
+            # Отправляем отклик с глобальным таймаутом 2 минуты
             result = False
             if vacancy.platform == "hh":
                 parser = HHParser()
-                await parser.login()
-                result = await parser.apply_to_vacancy(vacancy.url, letter)
+                try:
+                    await asyncio.wait_for(parser.login(), timeout=60)
+                    result = await asyncio.wait_for(
+                        parser.apply_to_vacancy(vacancy.url, letter),
+                        timeout=120,
+                    )
+                except asyncio.TimeoutError:
+                    log.error("apply_timeout_global", vacancy_id=vacancy.id, url=vacancy.url)
+                    result = False
 
             success = result is True  # True != "already"
             already = result == "already"

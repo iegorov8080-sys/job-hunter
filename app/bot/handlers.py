@@ -646,7 +646,7 @@ async def cb_toggle_auto(callback: CallbackQuery, **kw):
     if not _scheduler:
         await callback.answer("Scheduler не найден")
         return
-    _scheduler.auto_apply = not _scheduler.auto_apply
+    _scheduler.set_auto_apply(not _scheduler.auto_apply)
     status = "🟢 ВКЛ" if _scheduler.auto_apply else "⚪ ВЫКЛ"
     await callback.answer(f"Авто-отклик: {status}")
     await callback.message.edit_text(
