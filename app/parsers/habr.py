@@ -174,10 +174,19 @@ class HabrParser(BaseParser):
             log.error("habr_details_error", url=url, error=str(e))
             return None
 
-    async def apply_to_vacancy(self, url: str, cover_letter: str) -> bool:
-        # Habr apply requires login + UI. Manual for now.
-        log.info("habr_apply_not_supported", url=url)
+    async def apply_to_vacancy(self, url: str, cover_letter: str):
+        pw = self._get_playwright()
+        if pw:
+            return await pw.apply_to_vacancy(url, cover_letter)
+        log.warning("habr_apply_not_supported", url=url, reason="playwright not available")
         return False
 
     async def check_messages(self) -> list[dict]:
         return []
+
+    def _get_playwright(self):
+        try:
+            from app.parsers.habr_playwright import habr_playwright
+            return habr_playwright
+        except ImportError:
+            return None
