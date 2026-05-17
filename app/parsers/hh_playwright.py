@@ -705,11 +705,22 @@ class HHPlaywright:
             await page.wait_for_timeout(5500)
             await self._save_debug_screenshot(page, "thanks_step2_widget_open")
 
-            ctx = page
+            # The chatik widget renders inside a cross-origin iframe
+            # https://chatik.hh.ru/?platform=xhh&dest=iframe
+            # Playwright lets us drive it via page.frames
+            chatik_frame = None
+            for f in page.frames:
+                if "chatik" in (f.url or ""):
+                    chatik_frame = f
+                    break
+            if not chatik_frame:
+                log.warning("hh_thanks_no_chatik_frame", urls=[f.url for f in page.frames][:8])
+                return 0
+            log.info("hh_thanks_chatik_frame", url=chatik_frame.url)
+            ctx = chatik_frame
 
-            # Search recursively through both regular DOM and shadow roots
-            # Also check iframes
-            click_result = await page.evaluate(
+            # Search inside the chatik iframe
+            click_result = await chatik_frame.evaluate(
                 """() => {
                     function* deepNodes(root) {
                         yield root;
