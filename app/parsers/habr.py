@@ -76,11 +76,11 @@ class HabrParser(BaseParser):
         ext_id_match = re.search(r"/vacancies/(\d+)", href)
         ext_id = ext_id_match.group(1) if ext_id_match else url
 
-        company_el = card.select_one(".vacancy-card__company-title a")
-        company_name = company_el.get_text(strip=True) if company_el else ""
+        company_link = card.select_one(".vacancy-card__company a")
+        company_name = company_link.get_text(strip=True) if company_link else ""
         company_url = ""
-        if company_el:
-            ch = company_el.get("href", "")
+        if company_link:
+            ch = company_link.get("href", "")
             company_url = ch if ch.startswith("http") else f"{HABR_BASE}{ch}"
 
         salary_from, salary_to, currency = None, None, ""
