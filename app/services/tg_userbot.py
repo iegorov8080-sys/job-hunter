@@ -49,10 +49,19 @@ class TGUserBot:
             proxy=proxy,
         )
 
-        try:
-            await self.client.start()
-        except Exception as e:
-            log.error("tg_userbot_start_error", error=str(e))
+        # Retry connection — Telethon over WARP SOCKS sometimes fails on first try
+        last_err = None
+        for attempt in range(6):
+            try:
+                await self.client.start()
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                log.info("tg_userbot_start_retry", attempt=attempt + 1, err=str(e)[:80])
+                await asyncio.sleep(10)
+        if last_err:
+            log.error("tg_userbot_start_error", error=str(last_err))
             return False
 
         me = await self.client.get_me()
