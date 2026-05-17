@@ -214,32 +214,48 @@ class HHPlaywright:
                 submit_btn = await page.query_selector('button:has-text("Откликнуться")')
 
             if submit_btn:
-                await self._save_debug_screenshot(page, "apply_before_submit")
                 await submit_btn.click()
-                await page.wait_for_timeout(6000)
-                await self._save_debug_screenshot(page, "apply_after_submit")
 
-                # Check success
-                success_el = await page.query_selector('[data-qa="vacancy-response-link-view-topic"]')
-                if success_el:
-                    log.info("hh_apply_success", url=vacancy_url)
-                    await browser_manager.save_context("hh")
-                    return True
+                # Wait up to 12s for any of: URL change to negotiations,
+                # success element, or visible 'отклик отправлен' text
+                success = False
+                for _ in range(12):
+                    await page.wait_for_timeout(1000)
+                    if "/applicant/negotiations" in page.url or "vacancy_response_success" in page.url:
+                        success = True
+                        break
+                    try:
+                        if await page.query_selector('[data-qa="vacancy-response-link-view-topic"]'):
+                            success = True
+                            break
+                        if await page.query_selector('[data-qa*="response-success"], [class*="response-success"]'):
+                            success = True
+                            break
+                        # Check text on page for confirmation
+                        body_text = await page.evaluate("() => document.body.innerText.slice(0, 2000)")
+                        if "отклик отправлен" in body_text.lower() or "вы откликнулись" in body_text.lower():
+                            success = True
+                            break
+                    except Exception:
+                        pass
 
-                if "/applicant/negotiations" in page.url or "vacancy_response_success" in page.url:
-                    log.info("hh_apply_success_redirect", url=vacancy_url, final=page.url)
+                if success:
+                    log.info("hh_apply_success", url=vacancy_url, final=page.url)
                     await browser_manager.save_context("hh")
                     return True
 
                 # Look for inline validation errors
-                err_text = await page.evaluate(
-                    """() => {
-                        const errs = document.querySelectorAll('[class*="error"], [data-qa*="error"]');
-                        return Array.from(errs).slice(0, 5).map(e => (e.innerText || '').trim()).filter(Boolean);
-                    }"""
-                )
-                if err_text:
-                    log.warning("hh_apply_validation_errors", errors=err_text)
+                try:
+                    err_text = await page.evaluate(
+                        """() => {
+                            const errs = document.querySelectorAll('[class*="error"], [data-qa*="error"]');
+                            return Array.from(errs).slice(0, 5).map(e => (e.innerText || '').trim()).filter(Boolean);
+                        }"""
+                    )
+                    if err_text:
+                        log.warning("hh_apply_validation_errors", errors=err_text[:3])
+                except Exception:
+                    pass
 
             await self._save_debug_screenshot(page, "apply_fail")
             log.warning("hh_apply_uncertain", url=vacancy_url, current_url=page.url)
@@ -641,10 +657,16 @@ class HHPlaywright:
         bumped = 0
 
         try:
-            # Use lightweight wait_until="commit" to reduce memory load
-            await page.goto(HH_RESUMES, wait_until="commit", timeout=45000)
-            await page.wait_for_timeout(5000)
-            await random_delay(2, 4)
+            await page.goto(HH_RESUMES, wait_until="domcontentloaded", timeout=60000)
+            # Wait for the resume container to actually render before scanning
+            try:
+                await page.wait_for_selector(
+                    '[data-qa="resume-update-button_actions"], [data-qa="resume"], main',
+                    timeout=15000,
+                )
+            except PlaywrightTimeout:
+                pass
+            await page.wait_for_timeout(3000)
 
             # Find all "Поднять в поиске" buttons (free bump available)
             buttons = await page.query_selector_all('[data-qa="resume-update-button_actions"]')
