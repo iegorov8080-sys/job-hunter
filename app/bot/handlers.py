@@ -697,8 +697,11 @@ async def cb_thank_rejections(callback: CallbackQuery, **kw):
     from pathlib import Path
     from aiogram.types import FSInputFile
     for name in (
-        "debug_thanks_step1_discard_list.png",
-        "debug_thanks_step2_after_click.png",
+        "debug_thanks_step1_home.png",
+        "debug_thanks_step2_no_activator.png",
+        "debug_thanks_step2_widget_open.png",
+        "debug_thanks_step3_no_chats.png",
+        "debug_thanks_step3_chat_open.png",
         "debug_thanks_step3_no_input.png",
         "debug_thanks_step4_filled.png",
         "debug_thanks_step5_no_send_btn.png",

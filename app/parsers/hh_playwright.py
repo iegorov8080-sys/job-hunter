@@ -636,10 +636,9 @@ class HHPlaywright:
         return bumped
 
     async def send_thanks_via_clicks(self, max_count: int = 3) -> int:
-        """Open the discard tab, click each rejection card and send thanks.
+        """Open the chatik widget, find rejection chats and send thanks.
 
-        Diagnostic-first: tries once, saves screenshots at every step,
-        and reports honestly whether hh.ru even allows chat after rejection.
+        Diagnostic-first: tries once, saves screenshots at every step.
         """
         if not self._logged_in:
             if not await self.login():
@@ -649,24 +648,80 @@ class HHPlaywright:
         sent = 0
 
         try:
-            await page.goto(
-                f"{HH_NEGOTIATIONS}?page=0&filter=response&state=discard",
-                wait_until="domcontentloaded", timeout=45000,
-            )
+            # 1. Go to main page so the chatik activator is in navbar
+            await page.goto(HH_BASE, wait_until="domcontentloaded", timeout=45000)
             await page.wait_for_timeout(3000)
-            await self._save_debug_screenshot(page, "thanks_step1_discard_list")
+            await self._save_debug_screenshot(page, "thanks_step1_home")
 
-            cards = page.locator('[data-qa="negotiations-item"]')
-            count = await cards.count()
-            log.info("hh_thanks_cards_found", count=count)
-            if count == 0:
+            # 2. Click "Чаты" activator in navbar to open the widget
+            activator = await page.query_selector('[data-qa="chatikActivator-button"]')
+            if not activator:
+                activator = await page.query_selector('[data-qa*="chatik-activator"]')
+            if not activator:
+                await self._save_debug_screenshot(page, "thanks_step2_no_activator")
+                log.warning("hh_thanks_no_activator")
                 return 0
 
-            # Click the first card. hh.ru opens chatik widget (overlay), not nav.
-            await cards.first.click()
-            await page.wait_for_timeout(6000)
-            await self._save_debug_screenshot(page, "thanks_step2_after_click")
-            log.info("hh_thanks_after_click", url=page.url)
+            await activator.click()
+            await page.wait_for_timeout(4000)
+            await self._save_debug_screenshot(page, "thanks_step2_widget_open")
+
+            # 3. Dump widget DOM to find chat list + input selectors
+            widget_info = await page.evaluate(
+                """() => {
+                    const all = document.querySelectorAll('[data-qa*="chatik"], [class*="chatik"]');
+                    const found = new Set();
+                    for (const el of all) {
+                        const dq = el.getAttribute('data-qa');
+                        if (dq) found.add('dq:' + dq);
+                    }
+                    const inputs = [];
+                    for (const el of document.querySelectorAll('textarea, [contenteditable="true"]')) {
+                        inputs.push({
+                            dq: el.getAttribute('data-qa') || '',
+                            ph: el.getAttribute('placeholder') || '',
+                            visible: el.offsetParent !== null,
+                        });
+                    }
+                    return {dq: Array.from(found).slice(0, 60), inputs};
+                }"""
+            )
+            log.info("hh_thanks_widget_dump", info=widget_info)
+
+            # 4. Find rejection chats in the widget — look for "Отказ" status text
+            #    or use data-qa="chatik-chat" / similar
+            chat_items = await page.query_selector_all(
+                '[data-qa*="chatik-chat-item"], [data-qa*="chatik"][data-qa*="chat"]'
+            )
+            if not chat_items:
+                chat_items = await page.query_selector_all('[class*="chatik"] [class*="chat-item"]')
+            log.info("hh_thanks_chat_items", count=len(chat_items))
+
+            # Try to find a chat with rejection status
+            rejection_chat = None
+            for item in chat_items[:30]:
+                try:
+                    text = (await item.inner_text()).lower()
+                    if "отказ" in text or "отклон" in text:
+                        rejection_chat = item
+                        log.info("hh_thanks_rejection_chat_found", text=text[:80])
+                        break
+                except Exception:
+                    pass
+
+            if not rejection_chat and chat_items:
+                # Fall back to first chat just to test the flow
+                rejection_chat = chat_items[0]
+                log.info("hh_thanks_no_rejection_marker_using_first")
+
+            if not rejection_chat:
+                await self._save_debug_screenshot(page, "thanks_step3_no_chats")
+                log.warning("hh_thanks_no_chats_in_widget")
+                return 0
+
+            await rejection_chat.click()
+            await page.wait_for_timeout(3500)
+            await self._save_debug_screenshot(page, "thanks_step3_chat_open")
 
             # Dump all chatik-* data-qa to discover real selectors
             chatik_info = await page.evaluate(
