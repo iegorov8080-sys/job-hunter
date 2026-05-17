@@ -12,7 +12,8 @@ from app.utils.anti_detect import random_delay
 log = structlog.get_logger()
 
 HABR_BASE = "https://career.habr.com"
-HABR_LOGIN_URL = "https://career.habr.com/login"
+# Habr Career uses Habr Account SSO for login
+HABR_LOGIN_URL = "https://career.habr.com/users/auth/tmid"
 
 
 class HabrPlaywright:
