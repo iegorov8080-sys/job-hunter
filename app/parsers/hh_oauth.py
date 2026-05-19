@@ -187,9 +187,6 @@ class HHOAuth:
         return ""
 
     async def apply(self, vacancy_id: str, message: str = "") -> tuple[bool | str, dict]:
-        token = await self.get_token()
-        if not token:
-            return False, {"error": "no_oauth_token"}
         rhash = settings.hh_resume_id
         if not rhash:
             return False, {"error": "no_resume_id"}
@@ -198,9 +195,9 @@ class HHOAuth:
         if message:
             data["message"] = message
 
-        try:
+        async def _post(token: str):
             async with httpx.AsyncClient(timeout=15, verify=False) as c:
-                r = await c.post(
+                return await c.post(
                     "https://api.hh.ru/negotiations",
                     headers={
                         "User-Agent": UA,
@@ -209,8 +206,26 @@ class HHOAuth:
                     },
                     data=data,
                 )
+
+        token = await self.get_token()
+        if not token:
+            return False, {"error": "no_oauth_token"}
+
+        try:
+            r = await _post(token)
         except httpx.RequestError as e:
             return False, {"error": f"http: {e}"}
+
+        # If token died — drop cache, re-auth and retry once
+        if r.status_code in (401, 403):
+            log.warning("oauth_token_died_retrying")
+            TOKEN_FILE.unlink(missing_ok=True)
+            token2 = await self.get_token()
+            if token2:
+                try:
+                    r = await _post(token2)
+                except httpx.RequestError as e:
+                    return False, {"error": f"http_retry: {e}"}
 
         if r.status_code in (200, 201, 204):
             return True, {"status": r.status_code}
