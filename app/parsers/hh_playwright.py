@@ -233,6 +233,21 @@ class HHPlaywright:
                     raise
             await random_delay(2, 4)
 
+            # Check page-level access restrictions first
+            page_text_check = await page.evaluate(
+                """() => (document.body.innerText || '').slice(0, 1000).toLowerCase()"""
+            )
+            if "вам недоступна эта вакансия" in page_text_check or "вакансия скрыта" in page_text_check:
+                log.info("hh_vacancy_unavailable", url=vacancy_url)
+                return "already"  # Mark as APPLIED to skip forever
+            if "вакансия не найдена" in page_text_check or "vacancy not found" in page_text_check:
+                log.info("hh_vacancy_not_found", url=vacancy_url)
+                return "already"
+            if "/account/login" in page.url:
+                log.error("hh_session_lost_on_vacancy", url=vacancy_url)
+                self._logged_in = False
+                return False
+
             # If hh redirected to /applicant/vacancy_response — skip clicking apply
             if "/applicant/vacancy_response" not in page.url:
                 # Try multiple selectors and JS text-search as fallback
@@ -502,14 +517,42 @@ class HHPlaywright:
             except Exception as e:
                 log.warning("hh_letter_toggle_error", error=str(e))
 
-        # 3. Fill cover letter
-        letter_area = await page.query_selector('[data-qa="vacancy-response-popup-form-letter-input"]')
+        # 3. Fill cover letter — try many selectors + fallback to JS-find by placeholder
+        letter_area = None
+        for sel in (
+            '[data-qa="vacancy-response-popup-form-letter-input"]',
+            '[data-qa="cover-letter-input"]',
+            'textarea[name="text"]',
+            'textarea[name="letter"]',
+            'textarea[placeholder*="опроводительн"]',
+            'textarea[placeholder*="приветствие"]',
+            'textarea[placeholder*="расскажи"]',
+        ):
+            letter_area = await page.query_selector(sel)
+            if letter_area and await letter_area.is_visible():
+                break
+            letter_area = None
+
         if not letter_area:
-            letter_area = await page.query_selector('[data-qa="cover-letter-input"]')
-        if not letter_area:
-            letter_area = await page.query_selector('textarea[name="text"]')
-        if not letter_area:
-            letter_area = await page.query_selector('textarea[placeholder*="опроводительн"]')
+            # JS fallback — any visible textarea NOT used for questions
+            try:
+                handle = await page.evaluate_handle(
+                    """() => {
+                        const all = document.querySelectorAll('textarea');
+                        for (const t of all) {
+                            if (t.offsetParent === null) continue;
+                            const ph = (t.placeholder || '').toLowerCase();
+                            // Skip task-question textareas (have placeholder 'Писать тут')
+                            if (ph.includes('писать тут')) continue;
+                            return t;
+                        }
+                        return null;
+                    }"""
+                )
+                if await handle.evaluate("el => !!el"):
+                    letter_area = handle.as_element()
+            except Exception:
+                pass
 
         if letter_area and cover_letter:
             await human_type(letter_area, cover_letter, cfg.type_delay_min, cfg.type_delay_max)
